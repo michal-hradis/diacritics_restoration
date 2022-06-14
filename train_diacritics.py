@@ -3,7 +3,7 @@ import torch
 import logging
 import os
 import numpy as np
-from dataset import TextDataset
+from dataset import TextDataset, add_diacritics
 from nets import Net
 
 
@@ -14,17 +14,41 @@ def parse_arguments():
 
     parser.add_argument('--start-iteration', default=0, type=int)
     parser.add_argument('--max-iterations', default=500000, type=int)
-    parser.add_argument('--batch-size', default=16, type=int)
+    parser.add_argument('--batch-size', default=32, type=int)
     parser.add_argument('--view-step', default=500, type=int)
     parser.add_argument('--learning-rate', default=0.0002, type=float)
     args = parser.parse_args()
     return args
 
 
+def test(iteration, model, dataset, device, max_test_lines=1000):
+    model.eval()
+    loader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0)
+    count_good = 0.0
+    count_all = 0
+    space_id = dataset.input_translator.to_numpy(' ')
+    line_counter = 0
+    with torch.no_grad():
+        for batch_data, batch_labels in loader:
+            logits = model(batch_data.to(device).long())
+            #probs = torch.nn.functional.softmax(logits, dim=1).cpu().numpy()
+            predictions = torch.argmax(logits, dim=1).cpu().numpy()
+            relevant = np.not_equal(batch_data.numpy(), space_id)
+            correct = np.equal(batch_labels.numpy(), predictions)
+            count_good += np.sum(np.logical_and(relevant, correct))
+            count_all += np.sum(relevant)
+            line_counter += batch_data.shape[0]
 
-#def test(iteration, model, dataset, device, max_test_lines=200):
-#    model = model.eval()
+            if line_counter < 20:
+                base_string = dataset.input_translator.to_string(batch_data[0].numpy())
+                diacritics = dataset.target_translator.to_string(predictions[0])
+                print(add_diacritics(base_string, diacritics))
 
+            if line_counter > max_test_lines:
+                break
+
+    print(f'TEST {dataset.get_name()} {iteration:06d} acc:{count_good/count_all:.4f}')
+    model.train()
 
 
 def main():
@@ -41,7 +65,7 @@ def main():
     trn_loader = torch.utils.data.DataLoader(
         trn_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
-    model = Net(len(trn_dataset.input_translator.chars), len(trn_dataset.target_translator.chars), inner_channels=64)
+    model = Net(len(trn_dataset.input_translator.chars), len(trn_dataset.target_translator.chars), inner_channels=512)
 
     if args.start_iteration:
         checkpoint_path = f"checkpoint_{args.start_iteration:06d}.pth"
@@ -78,8 +102,8 @@ def main():
                 trn_loss_acc /= args.view_step
                 print(f"TRAIN {iteration} loss:{trn_loss_acc:.3f}")
 
-                #for dataset in [trn_dataset] + tst_datasets:
-                #    test(iteration, model, dataset, device, max_test_lines=1000)
+                for dataset in [trn_dataset] + tst_datasets:
+                    test(iteration, model, dataset, device, max_test_lines=1000)
 
                 trn_loss_acc = 0
 

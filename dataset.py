@@ -12,6 +12,14 @@ def keep_accents(s):
     return ''.join('o' if len(unicodedata.normalize('NFD', c)) == 1 else unicodedata.normalize('NFD', c)[1] for c in s)
 
 
+def add_diacritics(base_string, diacritics):
+    return ''.join(''.join([c1, c2]) if c2 != 'o' else c1 for c1, c2 in zip(base_string, diacritics))
+
+
+def string_difference(s1, s2):
+    return np.sum(c1 != c2 for c1, c2 in zip(s1, s2))
+
+
 def get_charset(data):
     chars = set(''.join(data))
     return sorted(chars)
@@ -44,9 +52,15 @@ class TextDataset(Dataset):
             for line in f:
                 line = line.strip()
                 while len(line) > min_length:
+                    if len(self.data_orig) % 1000 == 0:
+                        print(f'Loaded {len(self.data_orig)} segments from {self.input_file}.')
+
                     segment = line[:max_length]
+                    line = line[max_length:]
                     segment = segment + ''.join(' ' for i in range(self.max_length - len(segment)))
                     segment_input = strip_accents(segment)
+                    if string_difference(segment_input, segment) < 2:
+                        continue
                     segment_target = keep_accents(segment)
                     if len(segment) == len(segment_input) == len(segment_target):
                         self.data_orig.append(segment)
@@ -54,7 +68,6 @@ class TextDataset(Dataset):
                         self.data_target.append(segment_target)
                     else:
                         print(f"Lengths don't match {len(segment)} {len(segment_input)} {len(segment_target)}")
-                    line = line[max_length:]
 
         if input_translator is None:
             self.input_translator = Translation(get_charset(self.data_input))

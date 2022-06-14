@@ -13,5 +13,5 @@ class Net(torch.nn.Module):
         out, _ = self.rec(x)
         out = torch.permute(out, (0, 2, 1))
         out = self.output_layer(out)
-        out = torch.nn.functional.softmax(out, dim=1)
+        #out = torch.nn.functional.softmax(out, dim=1)
         return out
