@@ -3,7 +3,7 @@ import torch
 import logging
 import os
 import numpy as np
-from dataset import TextDataset, add_diacritics
+from dataset import TextDataset, add_diacritics, load_translation
 from nets import Net
 
 
@@ -14,9 +14,10 @@ def parse_arguments():
 
     parser.add_argument('--start-iteration', default=0, type=int)
     parser.add_argument('--max-iterations', default=500000, type=int)
-    parser.add_argument('--batch-size', default=32, type=int)
+    parser.add_argument('--batch-size', default=128, type=int)
     parser.add_argument('--view-step', default=500, type=int)
     parser.add_argument('--learning-rate', default=0.0002, type=float)
+    parser.add_argument('--char-file', help='Prefix (excluding .input .output) of files with input and output characters.')
     args = parser.parse_args()
     return args
 
@@ -28,6 +29,7 @@ def test(iteration, model, dataset, device, max_test_lines=1000):
     count_all = 0
     space_id = dataset.input_translator.to_numpy(' ')
     line_counter = 0
+    batch_counter = 0
     with torch.no_grad():
         for batch_data, batch_labels in loader:
             logits = model(batch_data.to(device).long())
@@ -39,10 +41,11 @@ def test(iteration, model, dataset, device, max_test_lines=1000):
             count_all += np.sum(relevant)
             line_counter += batch_data.shape[0]
 
-            if line_counter < 20:
+            if batch_counter < 20:
                 base_string = dataset.input_translator.to_string(batch_data[0].numpy())
                 diacritics = dataset.target_translator.to_string(predictions[0])
                 print(add_diacritics(base_string, diacritics))
+            batch_counter += 1
 
             if line_counter > max_test_lines:
                 break
@@ -54,7 +57,15 @@ def test(iteration, model, dataset, device, max_test_lines=1000):
 def main():
     args = parse_arguments()
 
-    trn_dataset = TextDataset(args.trn_data, min_length=20, max_length=96)
+    if args.char_file:
+        trn_dataset = TextDataset(args.trn_data, min_length=20, max_length=96,
+                                  input_translator=load_translation(args.char_file + '.input'),
+                                  target_translator=load_translation(args.char_file + '.target'),)
+    else:
+        trn_dataset = TextDataset(args.trn_data, min_length=20, max_length=96)
+        trn_dataset.input_translator.save('model_characters.input')
+        trn_dataset.target_translator.save('model_characters.target')
+
     tst_datasets = []
     if args.tst_data:
         for tst_data in args.tst_data:
@@ -62,10 +73,13 @@ def main():
                                             input_translator=trn_dataset.input_translator,
                                             target_translator=trn_dataset.target_translator))
 
+    trn_dataset.input_translator.save('model_characters.input')
+    trn_dataset.target_translator.save('model_characters.target')
+
     trn_loader = torch.utils.data.DataLoader(
         trn_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
-    model = Net(len(trn_dataset.input_translator.chars), len(trn_dataset.target_translator.chars), inner_channels=512)
+    model = Net(len(trn_dataset.input_translator.chars), len(trn_dataset.target_translator.chars), inner_channels=768)
 
     if args.start_iteration:
         checkpoint_path = f"checkpoint_{args.start_iteration:06d}.pth"
@@ -99,6 +113,7 @@ def main():
                 print(f"ITERATION {iteration}")
                 checkpoint_path = "checkpoint_{:06d}.pth".format(iteration + 1)
                 torch.save(model.state_dict(), checkpoint_path)
+
                 trn_loss_acc /= args.view_step
                 print(f"TRAIN {iteration} loss:{trn_loss_acc:.3f}")
 

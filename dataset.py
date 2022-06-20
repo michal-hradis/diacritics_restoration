@@ -25,16 +25,25 @@ def get_charset(data):
     return sorted(chars)
 
 
+def load_translation(file_name):
+    with open(file_name, 'r', encoding='utf-8') as f:
+        return Translation(f.read())
+
+
 class Translation:
     def __init__(self, chars):
         self.chars = chars
         self.id_map = {c:i for i, c in enumerate(chars)}
 
     def to_numpy(self, s):
-        return np.asarray([self.id_map[c] for c in s], dtype=np.uint8)
+        return np.asarray([self.id_map[c] if c in self.id_map else self.id_map['X'] for c in s], dtype=np.uint8)
 
     def to_string(self, ar):
         return ''.join(self.chars[i] for i in ar)
+
+    def save(self, filename):
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(''.join(self.chars))
 
 
 class TextDataset(Dataset):
@@ -52,7 +61,7 @@ class TextDataset(Dataset):
             for line in f:
                 line = line.strip()
                 while len(line) > min_length:
-                    if len(self.data_orig) % 1000 == 0:
+                    if len(self.data_orig) % 10000 == 0:
                         print(f'Loaded {len(self.data_orig)} segments from {self.input_file}.')
 
                     segment = line[:max_length]
